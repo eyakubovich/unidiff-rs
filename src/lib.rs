@@ -26,6 +26,7 @@ use lazy_static::lazy_static;
 
 use std::error;
 use std::fmt;
+use std::iter::Peekable;
 use std::ops::{Index, IndexMut};
 use std::str::FromStr;
 
@@ -375,7 +376,9 @@ impl PatchedFile {
         !self.is_added_file() && !self.is_removed_file()
     }
 
-    fn parse_hunk(&mut self, header: &str, diff: &[(usize, &str)]) -> Result<()> {
+    fn parse_hunk<'a, I>(&mut self, header: &str, diff: &mut Peekable<I>) -> Result<()>
+    where I: Iterator<Item = (usize, &'a str)>
+    {
         let header_info = RE_HUNK_HEADER.captures(header).unwrap();
         let source_start = header_info
             .name("source_start")
@@ -416,7 +419,7 @@ impl PatchedFile {
         let mut target_line_no = target_start;
         let expected_source_end = source_start + source_length;
         let expected_target_end = target_start + target_length;
-        for &(diff_line_no, line) in diff {
+        while let Some((diff_line_no, line)) = diff.peek() {
             if let Some(valid_line) = RE_HUNK_BODY_LINE.captures(line) {
                 let mut line_type = valid_line.name("line_type").unwrap().as_str();
                 if line_type == LINE_TYPE_EMPTY || line_type == "" {
@@ -447,13 +450,14 @@ impl PatchedFile {
                     }
                     _ => {}
                 }
+                diff.next();
                 hunk.append(original_line);
                 if source_line_no >= expected_source_end && target_line_no >= expected_target_end {
                     // FIXME: sync with upstream version
                     break;
                 }
             } else {
-                return Err(Error::ExpectLine(line.to_owned()));
+                return Err(Error::ExpectLine((*line).to_owned()));
             }
         }
         self.hunks.push(hunk);
@@ -621,11 +625,11 @@ impl PatchSet {
     pub fn parse<T: AsRef<str>>(&mut self, input: T) -> Result<()> {
         let input = input.as_ref();
         let mut current_file: Option<PatchedFile> = None;
-        let diff: Vec<(usize, &str)> = input.lines().enumerate().collect();
+        let mut diff = input.lines().enumerate().peekable();
         let mut source_file: Option<String> = None;
         let mut source_timestamp: Option<String> = None;
 
-        for &(line_no, line) in &diff {
+        while let Some((_, line)) = diff.next() {
             // check for source file header
             if let Some(captures) = RE_SOURCE_FILENAME.captures(line) {
                 source_file = match captures.name("filename") {
@@ -669,7 +673,7 @@ impl PatchSet {
             // check for hunk header
             if RE_HUNK_HEADER.is_match(line) {
                 if let Some(ref mut patched_file) = current_file {
-                    patched_file.parse_hunk(line, &diff[line_no + 1..])?;
+                    patched_file.parse_hunk(line, &mut diff)?;
                 } else {
                     return Err(Error::UnexpectedHunk(line.to_owned()));
                 }

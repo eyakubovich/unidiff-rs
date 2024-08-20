@@ -394,3 +394,47 @@ fn test_parse_patchset_from_str() {
     // three hunks
     assert_eq!(3, patch[0].len());
 }
+
+#[test]
+fn test_markers_in_diff() {
+    {
+        let buf = include_str!("fixtures/sample6.diff");
+
+        let mut patch = PatchSet::new();
+        patch.parse(&buf).unwrap();
+
+        assert_eq!(1, patch.len());
+
+        let added_files = patch.added_files();
+        assert_eq!(1, added_files.len());
+        assert_eq!("sample.txt", added_files[0].path());
+        assert_eq!(1, added_files[0].added());
+        assert_eq!(0, added_files[0].removed());
+    }
+    {
+        let buf = include_str!("fixtures/sample7.diff");
+
+        let mut patch = PatchSet::new();
+        patch.parse(&buf).unwrap();
+
+        assert_eq!(3, patch.len());
+
+        let added_files = patch.added_files();
+        assert_eq!(1, added_files.len());
+        assert_eq!("added_file", added_files[0].path());
+        assert_eq!(4, added_files[0].added());
+        assert_eq!(0, added_files[0].removed());
+
+        let modified_files = patch.modified_files();
+        assert_eq!(1, modified_files .len());
+        assert_eq!("modified_file", modified_files[0].path());
+        assert_eq!(3, modified_files[0].added());
+        assert_eq!(1, modified_files[0].removed());
+
+        let removed_files = patch.removed_files();
+        assert_eq!(1, removed_files.len());
+        assert_eq!("removed_file", removed_files[0].path());
+        assert_eq!(0, removed_files[0].added());
+        assert_eq!(3, removed_files[0].removed());
+    }
+}
